@@ -1,0 +1,25 @@
+# Local secrets for `wrangler dev` — copy to .dev.vars (never commit .dev.vars).
+# For the live site, upload them once with:  npx wrangler secret bulk .dev.vars
+# (or one by one: npx wrangler secret put ADMIN_PASSWORD)
+
+# At least 32 random characters. Generate in PowerShell:
+#   [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Max 256 }))
+JWT_SECRET=change-me-to-a-long-random-secret-at-least-32-chars
+
+# Admin login for /admin
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-me
+
+# Automatic WhatsApp message to the shop on every new order (fill ONE option, blank = off)
+# Option A — CallMeBot (free): on the shop's phone save +34 644 31 95 65 as a contact and send it
+#   "I allow callmebot to send me messages". It replies with your API key.
+CALLMEBOT_API_KEY=
+# Option B — Meta WhatsApp Cloud API
+WHATSAPP_TOKEN=
+WHATSAPP_PHONE_NUMBER_ID=
+
+# Automatic email on every new order (server/port are in wrangler.jsonc: EMAIL_HOST, EMAIL_PORT).
+# Gmail: turn on 2-Step Verification, create an App Password (myaccount.google.com/apppasswords),
+# paste it WITHOUT spaces.
+EMAIL_USERNAME=
+EMAIL_PASSWORD=
