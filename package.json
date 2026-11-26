@@ -1,0 +1,22 @@
+{
+  "name": "milkproduct",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm --prefix frontend run build",
+    "dev": "npm run build && wrangler dev",
+    "dev:frontend": "npm --prefix frontend start",
+    "deploy": "npm run build && wrangler deploy",
+    "types": "wrangler types worker/worker-configuration.d.ts",
+    "typecheck": "tsc --noEmit -p worker",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "import:prepare": "node scripts/import-old-data.mjs",
+    "import:local": "wrangler d1 execute DB --local --file data-import/seed.sql && wrangler kv bulk put data-import/images.json --binding IMAGES --local",
+    "import:remote": "wrangler d1 execute DB --remote --file data-import/seed.sql && wrangler kv bulk put data-import/images.json --binding IMAGES --remote"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "wrangler": "^4.168.0"
+  }
+}

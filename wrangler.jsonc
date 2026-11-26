@@ -1,7 +1,50 @@
 {
-  "name": "uthayamilkproduct",
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "milkproduct",
+  "main": "worker/src/index.ts",
   "compatibility_date": "2026-11-01",
+
+  // The built Angular app. /api/* and /uploads/* go to the Worker code; everything else is a file
+  // (unknown paths like /cart or /admin/orders get index.html, so Angular routing works).
   "assets": {
-    "directory": "./"
-  }
+    "directory": "./frontend/dist/frontend/browser",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/uploads/*"]
+  },
+
+  // Items, orders, settings (Cloudflare D1 database "milkproduct-db").
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "milkproduct-db",
+      "database_id": "04f9d883-2d1b-43d3-a105-c213dd476bd7",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Product photos (Cloudflare KV namespace "IMAGES").
+  "kv_namespaces": [
+    {
+      "binding": "IMAGES",
+      "id": "dcde0597f2b0446d97e1c700ef164386"
+    }
+  ],
+
+  // Non-secret settings. Secrets (passwords, keys) are set with `npx wrangler secret put NAME`
+  // for production and in the .dev.vars file for local development — see README.md.
+  "vars": {
+    "CURRENCY_SYMBOL": "Rs. ",
+    "DEFAULT_COUNTRY_CODE": "94",
+    "TIMEZONE": "Asia/Colombo",
+    "UPLOAD_MAX_MB": "5",
+    "JWT_EXPIRES_HOURS": "12",
+    "EMAIL_HOST": "smtp.gmail.com",
+    "EMAIL_PORT": "465",
+    "EMAIL_FROM": "",
+    "EMAIL_FROM_NAME": "Milk Shop Orders",
+    "WHATSAPP_API_VERSION": "v21.0"
+  },
+
+  "observability": { "enabled": true }
 }
