@@ -5,7 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- JSON data files are live data: never copy them into bin/ or a publish folder. -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);App_Data/**</DefaultItemExcludes>
+    <!-- Same for uploaded item photos: the server keeps its own wwwroot/uploads. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);App_Data/**;wwwroot/uploads/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>

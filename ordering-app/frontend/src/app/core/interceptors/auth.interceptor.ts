@@ -11,7 +11,8 @@ import { AuthService } from '../services/auth.service';
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const auth = inject(AuthService);
   const token = auth.token();
-  const isApiCall = req.url.startsWith(environment.apiUrl);
+  // apiUrl is '' when the app is served by the backend itself: then only relative URLs are API calls.
+  const isApiCall = environment.apiUrl ? req.url.startsWith(environment.apiUrl) : req.url.startsWith('/');
   const isLogin = req.url.endsWith('/api/auth/login');
 
   const authReq = token && isApiCall && !isLogin

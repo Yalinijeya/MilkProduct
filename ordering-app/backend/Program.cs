@@ -164,7 +164,8 @@ if (config.GetValue<bool>("TrustProxy"))
     app.UseForwardedHeaders(fwd);
 }
 
-app.UseStaticFiles(); // wwwroot/uploads → /uploads/...
+app.UseDefaultFiles(); // / → wwwroot/index.html (the built Angular app)
+app.UseStaticFiles(); // Angular files + wwwroot/uploads → /uploads/...
 app.UseRouting();
 app.UseCors("frontend");
 app.UseRateLimiter();
@@ -176,6 +177,9 @@ if (app.Environment.IsDevelopment()) app.MapOpenApi(); // /openapi/v1.json
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 app.MapControllers();
 app.MapHub<OrdersHub>(OrdersHub.Path);
+// Unknown /api URLs stay a JSON 404; other non-file paths (/cart, /admin/...) are Angular routes → index.html.
+app.Map("/api/{**rest}", () => Results.NotFound(new ApiError("Not found")));
+app.MapFallbackToFile("index.html");
 
 // Create admin/settings/sample items in App_Data if missing
 await DataSeeder.SeedAsync(app.Services, resetAdminPassword: args.Contains("--reset-admin"));
