@@ -1,8 +1,9 @@
 import { HttpClient } from '@angular/common/http';
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { NotificationStatus, ShopSettings, TestNotificationResult } from '../models/models';
+import { ShopStatus, hoursLabel, shopStatus } from '../utils/shop-hours';
 
 @Injectable({ providedIn: 'root' })
 export class SettingsService {
@@ -11,6 +12,28 @@ export class SettingsService {
 
   /** Latest settings loaded from the API (null until loaded). */
   readonly settings = signal<ShopSettings | null>(null);
+
+  /** Ticks every 30 s so the open/closed status changes by itself at opening and closing time. */
+  private readonly now = signal(new Date());
+
+  /** Open or closed right now (null until the settings are loaded). */
+  readonly status = computed<ShopStatus | null>(() => {
+    const s = this.settings();
+    return s ? shopStatus(s, this.now()) : null;
+  });
+
+  /** True unless the shop is known to be closed. */
+  readonly isOpen = computed(() => this.status()?.open ?? true);
+
+  /** "7:00 AM – 8:00 PM" or "Open 24 hours" */
+  readonly hours = computed(() => {
+    const s = this.settings();
+    return s ? hoursLabel(s) : '';
+  });
+
+  constructor() {
+    setInterval(() => this.now.set(new Date()), 30_000);
+  }
 
   load(): Observable<ShopSettings> {
     return this.http.get<ShopSettings>(this.url).pipe(tap((s) => this.settings.set(s)));

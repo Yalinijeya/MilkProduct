@@ -10,6 +10,8 @@ interface ItemRow {
   unit: string;
   image_url: string;
   available: number;
+  /** null = not tracked (unlimited) */
+  stock: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -22,6 +24,7 @@ const toDto = (r: ItemRow) => ({
   unit: r.unit,
   imageUrl: r.image_url,
   available: r.available === 1,
+  stock: r.stock,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
@@ -47,10 +50,19 @@ export async function createItem(request: Request, env: AppEnv): Promise<Respons
   const now = nowIso();
   try {
     const row = await env.DB.prepare(
-      `INSERT INTO items (name, description, price, unit, image_url, available, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7) RETURNING *`,
+      `INSERT INTO items (name, description, price, unit, image_url, available, stock, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8) RETURNING *`,
     )
-      .bind(values.name!, values.description ?? '', values.price!, values.unit ?? '', imageUrl ?? '', values.available === false ? 0 : 1, now)
+      .bind(
+        values.name!,
+        values.description ?? '',
+        values.price!,
+        values.unit ?? '',
+        imageUrl ?? '',
+        values.available === false ? 0 : 1,
+        values.stock ?? null,
+        now,
+      )
       .first<ItemRow>();
     return json(toDto(row!), 201);
   } catch (err) {
@@ -73,7 +85,8 @@ export async function updateItem(request: Request, env: AppEnv, id: number): Pro
 
   try {
     const row = await env.DB.prepare(
-      `UPDATE items SET name = ?2, description = ?3, price = ?4, unit = ?5, image_url = ?6, available = ?7, updated_at = ?8
+      `UPDATE items SET name = ?2, description = ?3, price = ?4, unit = ?5, image_url = ?6, available = ?7, updated_at = ?8,
+         stock = CASE WHEN ?9 = 1 THEN ?10 ELSE stock END
        WHERE id = ?1 RETURNING *`,
     )
       .bind(
@@ -85,6 +98,9 @@ export async function updateItem(request: Request, env: AppEnv, id: number): Pro
         imageUrl,
         values.available === undefined ? existing.available : values.available ? 1 : 0,
         nowIso(),
+        // Only overwrite stock when the form sent it, so a sale that happens meanwhile isn't undone.
+        values.stock === undefined ? 0 : 1,
+        values.stock ?? null,
       )
       .first<ItemRow>();
     if (!row) throw new ApiError(404, 'Item not found');
@@ -178,6 +194,8 @@ interface ItemValues {
   unit?: string;
   description?: string;
   available?: boolean;
+  /** undefined = not sent (keep), null = not tracked (unlimited), number = items in stock */
+  stock?: number | null;
 }
 
 async function readForm(request: Request): Promise<FormData> {
@@ -231,6 +249,14 @@ function validate(form: FormData, isCreate: boolean): ItemValues {
     if (a === 'true') values.available = true;
     else if (a === 'false') values.available = false;
     else errors.available = 'Invalid value';
+  }
+
+  const stock = field('stock');
+  if (stock !== null) {
+    const t = stock.trim();
+    if (t === '') values.stock = null;
+    else if (!/^\d+$/.test(t) || Number(t) > 1_000_000) errors.stock = 'Stock must be a whole number (0 or more), or empty for unlimited';
+    else values.stock = Number(t);
   }
 
   throwIfErrors(errors);

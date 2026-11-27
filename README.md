@@ -97,12 +97,28 @@ This sends `JWT_SECRET`, `ADMIN_USERNAME` and `ADMIN_PASSWORD` (and any WhatsApp
 
 ---
 
+## Stock and opening hours
+
+**Stock** (Admin → Manage items)
+- When you add or edit an item, enter the **Stock quantity**. Leave it **empty for unlimited** (stock not tracked).
+- Every order **subtracts** its items from stock. **Cancelling** an order puts them back, and un-cancelling subtracts them again.
+- Each item in the list has an **Update stock** button for quick restocking.
+- Customers see **"Only 3 left"** (at 5 or fewer) and **"Out of stock"**, and can't order more than you have.
+  The server checks this as well, so two customers can never buy the same last item.
+
+**Opening hours** (Admin → Settings → Opening hours)
+- **Opens at / Closes at** use Sri Lanka time. Orders are only accepted between these times.
+  Leave both empty to accept orders 24 hours. A closing time earlier than the opening time means the shop is open overnight.
+- Untick **Accepting online orders** to close the shop for now (for example on a holiday).
+- When the shop is closed, customers see a banner (for example "We open at 7:00 AM"). They can still browse, but they can't check out.
+
 ## Changing things later
 
 | I want to… | Do this |
 |---|---|
-| Change products, prices, photos, shop details, delivery charge | Use the **admin panel**. No code needed |
+| Change products, prices, photos, stock, opening hours, shop details, delivery charge | Use the **admin panel**. No code needed |
 | Publish code changes | `npm run deploy` |
+| Publish code that adds a new file in `migrations/` | **First** `npm run db:migrate:remote`, **then** `npm run deploy` |
 | Change the admin password | `npx wrangler secret put ADMIN_PASSWORD` |
 | See errors or logs | Cloudflare dashboard → Workers & Pages → milkproduct → **Logs** |
 | Back up all data | `npx wrangler d1 export milkproduct-db --remote --output backup.sql` |
@@ -165,6 +181,7 @@ C:\Milk_Product
 │   ├── items.ts            Products + photos
 │   ├── orders.ts           Place/list orders, delivery charge, live-update feed
 │   ├── settings.ts         Shop settings
+│   ├── hours.ts            Opening hours (open / closed now)
 │   ├── notify.ts           WhatsApp + email notifications
 │   ├── smtp.ts             Sends email
 │   └── ratelimit.ts        Spam protection

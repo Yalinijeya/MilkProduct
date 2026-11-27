@@ -121,7 +121,10 @@ const CUSTOMER_KEY = 'customer_details';
         @if (submitError()) {
           <p class="rounded-lg bg-red-50 p-2 text-sm text-red-700">{{ submitError() }}</p>
         }
-        <button type="submit" class="btn-primary w-full py-3 text-base" [disabled]="submitting() || cart.isEmpty()">
+        @if (!settings.isOpen()) {
+          <p class="rounded-lg bg-amber-50 p-2 text-sm text-amber-800">🔒 {{ settings.status()?.message }}</p>
+        }
+        <button type="submit" class="btn-primary w-full py-3 text-base" [disabled]="submitting() || cart.isEmpty() || !settings.isOpen()">
           {{ submitting() ? 'Placing order…' : 'Place order' }}
         </button>
         <p class="text-center text-xs text-slate-500">Pay on delivery</p>
@@ -203,6 +206,7 @@ export class CheckoutComponent implements OnInit {
 
   protected submit(): void {
     this.submitError.set('');
+    if (!this.settings.isOpen()) return;
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       if (!this.hasLocation()) this.locationError.set('Please share your delivery location.');

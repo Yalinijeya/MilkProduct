@@ -58,6 +58,12 @@ const MAX_PHOTO_MB = 5;
               <input id="unit" class="input" formControlName="unit" placeholder="e.g. 1 L, 500 g" />
             </div>
             <div class="sm:col-span-2">
+              <label class="label" for="stock">Stock quantity</label>
+              <input id="stock" class="input sm:max-w-[200px]" type="number" min="0" step="1" inputmode="numeric" formControlName="stock" placeholder="Unlimited" />
+              <p class="mt-1 text-xs text-slate-500">How many you have to sell. Goes down with every order and back up if an order is cancelled. Leave empty for unlimited.</p>
+              @if (form.controls.stock.invalid && form.controls.stock.touched) { <p class="field-error">Enter a whole number (0 or more), or leave empty.</p> }
+            </div>
+            <div class="sm:col-span-2">
               <label class="label" for="description">Description (optional)</label>
               <textarea id="description" class="input" rows="2" formControlName="description"></textarea>
             </div>
@@ -93,6 +99,16 @@ const MAX_PHOTO_MB = 5;
             <div class="flex min-w-0 flex-1 flex-col">
               <p class="truncate font-semibold text-slate-900">{{ item.name }}</p>
               <p class="text-sm">{{ item.price | money }} <span class="text-slate-500">{{ item.unit }}</span></p>
+              <p class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
+                @if (item.stock === null) {
+                  <span class="text-slate-500">Stock: unlimited</span>
+                } @else if (item.stock === 0) {
+                  <span class="rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700">Out of stock</span>
+                } @else {
+                  <span [class]="item.stock <= lowStock ? 'font-medium text-amber-700' : 'text-slate-600'">Stock: {{ item.stock }}</span>
+                }
+                <button type="button" class="text-sky-700 hover:underline" (click)="updateStock(item)">Update stock</button>
+              </p>
               <label class="mt-1 flex items-center gap-1.5 text-xs text-slate-600">
                 <input type="checkbox" [checked]="item.available" (click)="$event.preventDefault(); toggleAvailable(item)" />
                 {{ item.available ? 'Available' : 'Hidden' }}
@@ -130,7 +146,12 @@ export class ManageItemsComponent implements OnInit, OnDestroy {
     unit: [''],
     description: ['', Validators.maxLength(500)],
     available: [true],
+    /** null = unlimited (not tracked) */
+    stock: this.fb.control<number | null>(null, [Validators.min(0), Validators.max(1_000_000), Validators.pattern(/^\d+$/)]),
   });
+
+  /** Stock at or below this is shown in orange. */
+  protected readonly lowStock = 5;
 
   ngOnInit(): void {
     this.load();
@@ -142,7 +163,7 @@ export class ManageItemsComponent implements OnInit, OnDestroy {
 
   protected openNew(): void {
     this.editing.set(null);
-    this.form.reset({ name: '', price: 0, unit: '', description: '', available: true });
+    this.form.reset({ name: '', price: 0, unit: '', description: '', available: true, stock: null });
     this.resetPhoto(null);
     this.formOpen.set(true);
   }
@@ -155,6 +176,7 @@ export class ManageItemsComponent implements OnInit, OnDestroy {
       unit: item.unit,
       description: item.description,
       available: item.available,
+      stock: item.stock,
     });
     this.resetPhoto(item.imageUrl ? new ImageUrlPipe().transform(item.imageUrl) : null);
     this.formOpen.set(true);
@@ -197,8 +219,10 @@ export class ManageItemsComponent implements OnInit, OnDestroy {
       this.form.markAllAsTouched();
       return;
     }
-    const value = this.form.getRawValue();
     const editing = this.editing();
+    const raw = this.form.getRawValue();
+    // When editing, only send the stock if it was changed here, so orders placed meanwhile aren't undone.
+    const value = { ...raw, stock: editing && !this.form.controls.stock.dirty ? undefined : raw.stock };
     this.saving.set(true);
 
     const request = editing
@@ -227,6 +251,26 @@ export class ManageItemsComponent implements OnInit, OnDestroy {
       error: (err) => {
         this.toast.error(errorMessage(err, 'Could not update item.'));
       },
+    });
+  }
+
+  protected updateStock(item: Item): void {
+    const answer = prompt(
+      `New stock quantity for "${item.name}".\nLeave empty for unlimited.`,
+      item.stock === null ? '' : String(item.stock),
+    );
+    if (answer === null) return; // cancelled
+    const text = answer.trim();
+    if (text !== '' && (!/^\d+$/.test(text) || Number(text) > 1_000_000)) {
+      this.toast.error('Enter a whole number (0 or more), or leave empty for unlimited.');
+      return;
+    }
+    this.itemService.setStock(item.id, text === '' ? null : Number(text)).subscribe({
+      next: (saved) => {
+        this.items.update((list) => list.map((i) => (i.id === saved.id ? saved : i)));
+        this.toast.success(`Stock updated: ${saved.name}`);
+      },
+      error: (err) => this.toast.error(errorMessage(err, 'Could not update stock.')),
     });
   }
 

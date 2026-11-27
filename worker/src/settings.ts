@@ -1,4 +1,5 @@
 import type { AppEnv } from './env';
+import { TIME_RE } from './hours';
 import { ApiError, json, readJson, throwIfErrors } from './http';
 import { isFiniteNumber, nowIso, parseEmails, toInternational } from './util';
 
@@ -11,6 +12,13 @@ export interface Settings {
   shopLng: number;
   freeKm: number;
   chargePerKm: number;
+  /** "HH:MM" or "" (both empty = open 24 hours) */
+  openTime: string;
+  closeTime: string;
+  /** false = the admin switched online orders off */
+  acceptingOrders: boolean;
+  /** Time zone of openTime/closeTime (from wrangler.jsonc, read-only) */
+  timezone: string;
 }
 
 interface SettingsRow {
@@ -22,6 +30,9 @@ interface SettingsRow {
   shop_lng: number;
   free_km: number;
   charge_per_km: number;
+  open_time: string;
+  close_time: string;
+  accepting_orders: number;
 }
 
 export async function loadSettings(env: AppEnv): Promise<Settings> {
@@ -36,10 +47,14 @@ export async function loadSettings(env: AppEnv): Promise<Settings> {
     shopLng: r.shop_lng,
     freeKm: r.free_km,
     chargePerKm: r.charge_per_km,
+    openTime: r.open_time ?? '',
+    closeTime: r.close_time ?? '',
+    acceptingOrders: r.accepting_orders !== 0,
+    timezone: env.TIMEZONE,
   };
 }
 
-/** GET /api/settings — public (checkout needs the shop location and delivery rates). */
+/** GET /api/settings — public (checkout needs the shop location, delivery rates and opening hours). */
 export async function getSettings(env: AppEnv): Promise<Response> {
   return json(await loadSettings(env));
 }
@@ -114,13 +129,42 @@ export async function updateSettings(request: Request, env: AppEnv): Promise<Res
     else s.chargePerKm = rate;
   }
 
+  for (const key of ['openTime', 'closeTime'] as const) {
+    const t = text(key);
+    if (t === undefined) continue;
+    if (t.trim() !== '' && !TIME_RE.test(t.trim())) errors[key] = 'Use a time like 07:00 or 18:30';
+    else s[key] = t.trim();
+  }
+  if (!errors.openTime && !errors.closeTime && !s.openTime !== !s.closeTime) {
+    errors.openTime = 'Set both opening and closing time, or leave both empty (open 24 hours)';
+  }
+  const accepting = req.acceptingOrders;
+  if (accepting !== undefined && accepting !== null) {
+    if (typeof accepting !== 'boolean') errors.acceptingOrders = 'Invalid value';
+    else s.acceptingOrders = accepting;
+  }
+
   throwIfErrors(errors);
 
   await env.DB.prepare(
     `UPDATE settings SET shop_name = ?1, whatsapp_number = ?2, notify_email = ?3, shop_address = ?4,
-       shop_lat = ?5, shop_lng = ?6, free_km = ?7, charge_per_km = ?8, updated_at = ?9 WHERE id = 1`,
+       shop_lat = ?5, shop_lng = ?6, free_km = ?7, charge_per_km = ?8, open_time = ?9, close_time = ?10,
+       accepting_orders = ?11, updated_at = ?12 WHERE id = 1`,
   )
-    .bind(s.shopName, s.whatsappNumber, s.notifyEmail, s.shopAddress, s.shopLat, s.shopLng, s.freeKm, s.chargePerKm, nowIso())
+    .bind(
+      s.shopName,
+      s.whatsappNumber,
+      s.notifyEmail,
+      s.shopAddress,
+      s.shopLat,
+      s.shopLng,
+      s.freeKm,
+      s.chargePerKm,
+      s.openTime,
+      s.closeTime,
+      s.acceptingOrders ? 1 : 0,
+      nowIso(),
+    )
     .run();
 
   return json(s);

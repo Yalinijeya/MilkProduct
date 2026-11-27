@@ -10,6 +10,11 @@ export interface ItemFormValue {
   unit: string;
   description: string;
   available: boolean;
+  /**
+   * Items in stock: a number, null = unlimited (not tracked),
+   * undefined = don't change it (so sales made meanwhile aren't undone).
+   */
+  stock?: number | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -44,6 +49,13 @@ export class ItemService {
     return this.http.put<Item>(`${this.api}/api/items/${id}`, fd);
   }
 
+  /** Quick stock change from the item list. null = unlimited (not tracked). */
+  setStock(id: number, stock: number | null): Observable<Item> {
+    const fd = new FormData();
+    fd.append('stock', stock === null ? '' : String(stock));
+    return this.http.put<Item>(`${this.api}/api/items/${id}`, fd);
+  }
+
   delete(id: number): Observable<{ message: string; id: number }> {
     return this.http.delete<{ message: string; id: number }>(`${this.api}/api/items/${id}`);
   }
@@ -55,6 +67,7 @@ export class ItemService {
     fd.append('unit', value.unit ?? '');
     fd.append('description', value.description ?? '');
     fd.append('available', String(value.available));
+    if (value.stock !== undefined) fd.append('stock', value.stock === null ? '' : String(value.stock));
     if (photo) fd.append('photo', photo);
     return fd;
   }

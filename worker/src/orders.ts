@@ -1,4 +1,5 @@
 import type { AppEnv } from './env';
+import { shopStatus } from './hours';
 import { ApiError, json, readJson } from './http';
 import { notifyNewOrder, whatsAppMessage } from './notify';
 import { rateLimit } from './ratelimit';
@@ -97,18 +98,30 @@ export async function placeOrder(request: Request, env: AppEnv, ctx: ExecutionCo
 
   const { customer, notes, quantities } = validateOrder(await readJson(request));
 
+  // Closed (outside opening hours, or orders switched off in Admin → Settings)?
+  const settings = await loadSettings(env);
+  const status = shopStatus(settings);
+  if (!status.open) throw new ApiError(409, status.message);
+
   // Prices always come from the saved items, never from the client.
   const ids = [...quantities.keys()];
   const { results: items } = await env.DB.prepare(
-    `SELECT id, name, price FROM items WHERE available = 1 AND id IN (${ids.map(() => '?').join(',')})`,
+    `SELECT id, name, price, stock FROM items WHERE available = 1 AND id IN (${ids.map(() => '?').join(',')})`,
   )
     .bind(...ids)
-    .all<{ id: number; name: string; price: number }>();
+    .all<{ id: number; name: string; price: number; stock: number | null }>();
   const available = new Map(items.map((i) => [i.id, i]));
   const missing = ids.filter((id) => !available.has(id));
   if (missing.length > 0) {
     throw new ApiError(409, 'Some items are no longer available. Please refresh your cart.', { missing: missing.join(',') });
   }
+
+  // Enough stock? (checked again inside the save below, in case someone else buys at the same time)
+  const short = ids
+    .map((id) => available.get(id)!)
+    .filter((i) => i.stock !== null && quantities.get(i.id)! > i.stock)
+    .map((i) => (i.stock === 0 ? `${i.name} is out of stock` : `only ${i.stock} ${i.name} left`));
+  if (short.length > 0) throw new ApiError(409, 'Not enough stock', { stock: short.join(', ') });
 
   const lines: OrderLine[] = ids.map((itemId, index) => {
     const item = available.get(itemId)!;
@@ -118,31 +131,42 @@ export async function placeOrder(request: Request, env: AppEnv, ctx: ExecutionCo
   const itemTotal = round2(lines.reduce((sum, l) => sum + l.lineTotal, 0));
 
   // Delivery charge is always recalculated here so the customer can't change it.
-  const settings = await loadSettings(env);
   const distance = haversineKm(settings.shopLat, settings.shopLng, customer.lat, customer.lng);
   const charge = deliveryCharge(distance, settings.freeKm, settings.chargePerKm);
   const now = nowIso();
 
-  const inserted = await env.DB.prepare(
+  // One transaction: take the items out of stock and save the order. If any stock would go below
+  // zero, the database CHECK fails and NOTHING is saved.
+  const stockUpdates = stockChanges(env, lines, -1);
+  const insertOrder = env.DB.prepare(
     `INSERT INTO orders (customer_name, customer_phone, customer_address, customer_lat, customer_lng, notes, items,
        item_total, distance_km, delivery_charge, grand_total, status, created_at, updated_at)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'new', ?12, ?12) RETURNING *`,
-  )
-    .bind(
-      customer.name,
-      customer.phone,
-      customer.address,
-      customer.lat,
-      customer.lng,
-      notes,
-      JSON.stringify(lines),
-      itemTotal,
-      round2(distance),
-      charge,
-      round2(itemTotal + charge),
-      now,
-    )
-    .first<OrderRow>();
+  ).bind(
+    customer.name,
+    customer.phone,
+    customer.address,
+    customer.lat,
+    customer.lng,
+    notes,
+    JSON.stringify(lines),
+    itemTotal,
+    round2(distance),
+    charge,
+    round2(itemTotal + charge),
+    now,
+  );
+
+  let results: D1Result[];
+  try {
+    results = await env.DB.batch([...stockUpdates, insertOrder]);
+  } catch (err) {
+    if (isStockError(err)) {
+      throw new ApiError(409, 'Not enough stock', { stock: 'Some items just sold out. Please refresh the page and check your cart.' });
+    }
+    throw err;
+  }
+  const inserted = results[results.length - 1].results[0] as OrderRow | undefined;
   if (!inserted) throw new ApiError(500, 'Could not save the order');
 
   // The order number comes from the id, so the WhatsApp link is added right after inserting.
@@ -182,11 +206,71 @@ export async function updateOrderStatus(request: Request, env: AppEnv, id: numbe
   if (!(ORDER_STATUSES as readonly string[]).includes(status)) {
     throw new ApiError(400, 'Status must be one of: new, confirmed, out_for_delivery, delivered, cancelled');
   }
-  const row = await env.DB.prepare('UPDATE orders SET status = ?2, updated_at = ?3 WHERE id = ?1 RETURNING *')
-    .bind(id, status, nowIso())
-    .first<OrderRow>();
-  if (!row) throw new ApiError(404, 'Order not found');
+  const current = await env.DB.prepare('SELECT * FROM orders WHERE id = ?1').bind(id).first<OrderRow>();
+  if (!current) throw new ApiError(404, 'Order not found');
+
+  // Cancelling puts the items back in stock; un-cancelling takes them out again.
+  const wasCancelled = current.status === 'cancelled';
+  const willBeCancelled = status === 'cancelled';
+  const ts = nowIso();
+
+  // The status only changes if nobody else changed it since we read it (WHERE status = old).
+  const updateOrder = env.DB.prepare('UPDATE orders SET status = ?2, updated_at = ?3 WHERE id = ?1 AND status = ?4 RETURNING *').bind(
+    id,
+    status,
+    ts,
+    current.status,
+  );
+  // ...and the stock only moves if that status change really happened (same transaction).
+  const stockUpdates =
+    wasCancelled === willBeCancelled
+      ? []
+      : stockChanges(env, orderLines(current), willBeCancelled ? 1 : -1, { orderId: id, status, updatedAt: ts });
+
+  let results: D1Result[];
+  try {
+    results = await env.DB.batch([updateOrder, ...stockUpdates]);
+  } catch (err) {
+    if (isStockError(err)) {
+      throw new ApiError(409, 'Not enough stock to re-open this cancelled order. Update the stock in Manage items first.');
+    }
+    throw err;
+  }
+  const row = results[0].results[0] as OrderRow | undefined;
+  if (!row) throw new ApiError(409, 'This order was just changed by someone else. Please refresh.');
   return json(orderDto(row));
+}
+
+// ---------- stock ----------
+
+/**
+ * Statements that add (direction 1) or remove (direction -1) the order's items from stock.
+ * Items whose stock isn't tracked (NULL) or that were deleted are skipped.
+ * With `onlyIf`, the change only happens when the order has that status + updated_at (set earlier in the
+ * same batch), so stock never moves twice.
+ */
+function stockChanges(
+  env: AppEnv,
+  lines: OrderLine[],
+  direction: 1 | -1,
+  onlyIf?: { orderId: number; status: string; updatedAt: string },
+): D1PreparedStatement[] {
+  const perItem = new Map<number, number>();
+  for (const l of lines) perItem.set(l.itemId, (perItem.get(l.itemId) ?? 0) + l.quantity);
+
+  return [...perItem].map(([itemId, quantity]) =>
+    onlyIf
+      ? env.DB.prepare(
+          `UPDATE items SET stock = stock + ?2 WHERE id = ?1 AND stock IS NOT NULL
+             AND EXISTS (SELECT 1 FROM orders WHERE id = ?3 AND status = ?4 AND updated_at = ?5)`,
+        ).bind(itemId, direction * quantity, onlyIf.orderId, onlyIf.status, onlyIf.updatedAt)
+      : env.DB.prepare('UPDATE items SET stock = stock + ?2 WHERE id = ?1 AND stock IS NOT NULL').bind(itemId, direction * quantity),
+  );
+}
+
+/** The CHECK (stock >= 0) in the items table failed → not enough stock. */
+function isStockError(err: unknown): boolean {
+  return /CHECK constraint failed/i.test(String(err instanceof Error ? err.message : err));
 }
 
 /** How far back each change check looks again, so an order saved during the previous check isn't missed. */

@@ -21,6 +21,16 @@ import { SettingsService } from '../../../core/services/settings.service';
           }
         </a>
       </div>
+      @if (settings.status(); as st) {
+        @if (!st.open) {
+          <div class="border-t border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm font-medium text-amber-900" role="status">
+            🔒 {{ st.message }}
+            @if (settings.settings()?.acceptingOrders) {
+              <span class="font-normal">You can still browse and fill your cart.</span>
+            }
+          </div>
+        }
+      }
     </header>
 
     <main class="mx-auto max-w-5xl px-4 py-6 pb-28">
@@ -41,6 +51,7 @@ import { SettingsService } from '../../../core/services/settings.service';
             </a>
           </p>
         }
+        <p>🕒 {{ settings.hours() === 'Open 24 hours' ? 'Open 24 hours' : 'Open daily ' + settings.hours() }}</p>
         <p>Free delivery within {{ s.freeKm }} km</p>
       }
     </footer>

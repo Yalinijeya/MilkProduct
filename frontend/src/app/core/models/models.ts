@@ -6,6 +6,8 @@ export interface Item {
   unit: string;
   imageUrl: string;
   available: boolean;
+  /** Items in stock; null = not tracked (unlimited). */
+  stock: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -24,6 +26,13 @@ export interface ShopSettings {
   shopLng: number;
   freeKm: number;
   chargePerKm: number;
+  /** "HH:MM" or "" — both empty = open 24 hours */
+  openTime: string;
+  closeTime: string;
+  /** false = online orders switched off by the admin */
+  acceptingOrders: boolean;
+  /** Time zone of the opening hours (read-only, set on the server) */
+  timezone: string;
 }
 
 export const ORDER_STATUSES = ['new', 'confirmed', 'out_for_delivery', 'delivered', 'cancelled'] as const;

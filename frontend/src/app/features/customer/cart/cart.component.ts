@@ -1,6 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { CartService } from '../../../core/services/cart.service';
+import { CartService, maxQuantity } from '../../../core/services/cart.service';
 import { SettingsService } from '../../../core/services/settings.service';
 import { ImageUrlPipe } from '../../../shared/pipes/image-url.pipe';
 import { MoneyPipe } from '../../../shared/pipes/money.pipe';
@@ -41,7 +41,10 @@ import { MoneyPipe } from '../../../shared/pipes/money.pipe';
                   <div class="flex items-center gap-2">
                     <button type="button" class="qty-btn" (click)="cart.setQuantity(line.item.id, line.quantity - 1)" aria-label="Decrease quantity">−</button>
                     <span class="w-6 text-center font-semibold">{{ line.quantity }}</span>
-                    <button type="button" class="qty-btn" (click)="cart.setQuantity(line.item.id, line.quantity + 1)" aria-label="Increase quantity" [disabled]="line.quantity >= 100">+</button>
+                    <button type="button" class="qty-btn" (click)="cart.setQuantity(line.item.id, line.quantity + 1)" aria-label="Increase quantity" [disabled]="line.quantity >= maxQuantity(line.item)">+</button>
+                    @if (line.item.stock !== null && line.quantity >= line.item.stock) {
+                      <span class="text-xs text-amber-700">Only {{ line.item.stock }} left</span>
+                    }
                   </div>
                   <span class="font-semibold">{{ line.item.price * line.quantity | money }}</span>
                 </div>
@@ -60,7 +63,12 @@ import { MoneyPipe } from '../../../shared/pipes/money.pipe';
             Delivery is free within {{ settings.settings()?.freeKm ?? 5 }} km, then
             {{ settings.settings()?.chargePerKm ?? 50 | money }} per extra km. Calculated at checkout.
           </p>
-          <a routerLink="/checkout" class="btn-primary w-full">Proceed to checkout</a>
+          @if (settings.isOpen()) {
+            <a routerLink="/checkout" class="btn-primary w-full">Proceed to checkout</a>
+          } @else {
+            <p class="rounded-lg bg-amber-50 p-2 text-sm text-amber-800">🔒 {{ settings.status()?.message }}</p>
+            <button type="button" class="btn-primary w-full" disabled>Proceed to checkout</button>
+          }
           <a routerLink="/" class="btn-secondary w-full">Continue shopping</a>
         </aside>
       </div>
@@ -70,4 +78,5 @@ import { MoneyPipe } from '../../../shared/pipes/money.pipe';
 export class CartComponent {
   protected readonly cart = inject(CartService);
   protected readonly settings = inject(SettingsService);
+  protected readonly maxQuantity = maxQuantity;
 }

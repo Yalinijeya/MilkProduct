@@ -6,6 +6,7 @@ import { SettingsService } from '../../../core/services/settings.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { calculateDeliveryCharge } from '../../../core/utils/delivery';
 import { getCurrentPosition } from '../../../core/utils/geo';
+import { shopStatus } from '../../../core/utils/shop-hours';
 import { errorMessage } from '../../../core/utils/http-error';
 import { MoneyPipe } from '../../../shared/pipes/money.pipe';
 
@@ -46,6 +47,48 @@ import { MoneyPipe } from '../../../shared/pipes/money.pipe';
               <label class="label" for="shopAddress">Shop address</label>
               <textarea id="shopAddress" class="input" rows="2" formControlName="shopAddress"></textarea>
             </div>
+          </section>
+
+          <section class="card space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h2 class="font-semibold text-slate-900">Opening hours</h2>
+              @if (previewStatus(); as st) {
+                <span class="rounded-full px-2.5 py-0.5 text-xs font-medium"
+                      [class]="st.open ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'">
+                  {{ st.open ? 'Open now' : 'Closed now' }}
+                </span>
+              }
+            </div>
+            <label class="flex items-start gap-2 text-sm">
+              <input type="checkbox" class="mt-0.5 h-4 w-4 rounded" formControlName="acceptingOrders" />
+              <span>
+                <span class="font-medium">Accepting online orders</span>
+                <span class="block text-xs text-slate-500">Untick to close the shop for now (holiday, sold out for the day…). Customers can still look at the products.</span>
+              </span>
+            </label>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="label" for="openTime">Opens at</label>
+                <input id="openTime" class="input" type="time" formControlName="openTime" />
+              </div>
+              <div>
+                <label class="label" for="closeTime">Closes at</label>
+                <input id="closeTime" class="input" type="time" formControlName="closeTime" />
+              </div>
+            </div>
+            @if (hoursError()) {
+              <p class="field-error">{{ hoursError() }}</p>
+            }
+            <p class="text-xs text-slate-500">
+              Sri Lanka time ({{ timezone() }}). Orders are only accepted between these times. Leave both empty to accept orders 24 hours.
+              For a night shop, a closing time earlier than the opening time works too (e.g. 6:00 PM → 2:00 AM).
+            </p>
+            <div class="flex flex-wrap gap-2 text-xs">
+              <button type="button" class="text-sky-700 hover:underline" (click)="clearHours()">Open 24 hours</button>
+            </div>
+            @if (previewStatus(); as st) {
+              <p class="rounded-lg bg-slate-50 p-2 text-sm text-slate-700">Customers will see: <b>{{ st.message }}</b></p>
+            }
           </section>
 
           <section class="card space-y-4">
@@ -164,9 +207,33 @@ export class SettingsComponent implements OnInit {
     shopLng: [0, [Validators.required, Validators.min(-180), Validators.max(180)]],
     freeKm: [5, [Validators.required, Validators.min(0)]],
     chargePerKm: [50, [Validators.required, Validators.min(0)]],
+    openTime: [''],
+    closeTime: [''],
+    acceptingOrders: [true],
   });
 
   private readonly value = toSignal(this.form.valueChanges, { initialValue: this.form.getRawValue() });
+
+  /** Time zone of the opening hours (comes from the server). */
+  protected readonly timezone = computed(() => this.settingsService.settings()?.timezone ?? 'Asia/Colombo');
+
+  /** Opening and closing time must both be set, or both empty. */
+  protected readonly hoursError = computed(() => {
+    const { openTime, closeTime } = this.value();
+    return !openTime !== !closeTime ? 'Set both the opening and the closing time, or leave both empty (open 24 hours).' : '';
+  });
+
+  /** What customers would see with the values in the form right now. */
+  protected readonly previewStatus = computed(() => {
+    const v = this.value();
+    if (this.hoursError()) return null;
+    return shopStatus({
+      openTime: v.openTime ?? '',
+      closeTime: v.closeTime ?? '',
+      acceptingOrders: v.acceptingOrders ?? true,
+      timezone: this.timezone(),
+    });
+  });
 
   protected readonly examples = computed(() => {
     const free = Number(this.value().freeKm) || 0;
@@ -204,8 +271,13 @@ export class SettingsComponent implements OnInit {
     }
   }
 
+  protected clearHours(): void {
+    this.form.patchValue({ openTime: '', closeTime: '' });
+    this.form.markAsDirty();
+  }
+
   protected save(): void {
-    if (this.form.invalid) {
+    if (this.form.invalid || this.hoursError()) {
       this.form.markAllAsTouched();
       this.toast.error('Please fix the highlighted fields.');
       return;
