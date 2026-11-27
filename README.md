@@ -107,10 +107,15 @@ This sends `JWT_SECRET`, `ADMIN_USERNAME` and `ADMIN_PASSWORD` (and any WhatsApp
   The server checks this as well, so two customers can never buy the same last item.
 
 **Opening hours** (Admin → Settings → Opening hours)
-- **Opens at / Closes at** use Sri Lanka time. Orders are only accepted between these times.
-  Leave both empty to accept orders 24 hours. A closing time earlier than the opening time means the shop is open overnight.
-- Untick **Accepting online orders** to close the shop for now (for example on a holiday).
-- When the shop is closed, customers see a banner (for example "We open at 7:00 AM"). They can still browse, but they can't check out.
+- Every day of the week has its own **opening and closing time** (Sri Lanka time). Orders are only accepted between these times.
+  - Leave both times empty for **open 24 hours** that day.
+  - A closing time earlier than the opening time means open past midnight (e.g. 6:00 PM → 2:00 AM).
+  - **Copy Monday's times to all days** fills the whole week in one click.
+- Tick **Holiday** on a day that is closed **every week** (for example every Sunday).
+- **Holiday dates** are for one day only (for example *this* Sunday, Poya day or Christmas). Pick the date and click **+ Add holiday**, or click **Close today**. Past dates are removed by themselves.
+- Untick **Accepting online orders** to close the shop right now, whatever the timetable says.
+- When the shop is closed, customers see a banner, for example "Sorry, we are closed on Sundays. We open tomorrow at 7:00 AM." They can still browse, but they can't check out.
+  The footer shows the weekly timetable and holidays coming up in the next 30 days.
 
 ## Changing things later
 
@@ -173,7 +178,7 @@ Your old project in `C:\Milk product\ordering-app` was not changed.
 C:\Milk_Product
 ├── wrangler.jsonc          Cloudflare settings (database/KV ids, non-secret settings)
 ├── .dev.vars               Local secrets (passwords) — never share
-├── migrations/             Database tables (0001_init.sql)
+├── migrations/             Database tables (0001, 0002, 0003 …)
 ├── scripts/import-old-data.mjs   Copies the old App_Data + photos into D1/KV
 ├── worker/src/
 │   ├── index.ts            URL routing

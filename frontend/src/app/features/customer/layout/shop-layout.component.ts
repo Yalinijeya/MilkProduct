@@ -2,6 +2,7 @@ import { Component, OnInit, inject } from '@angular/core';
 import { RouterLink, RouterOutlet } from '@angular/router';
 import { CartService } from '../../../core/services/cart.service';
 import { SettingsService } from '../../../core/services/settings.service';
+import { formatDate } from '../../../core/utils/shop-hours';
 
 @Component({
   selector: 'app-shop-layout',
@@ -51,7 +52,20 @@ import { SettingsService } from '../../../core/services/settings.service';
             </a>
           </p>
         }
-        <p>🕒 {{ settings.hours() === 'Open 24 hours' ? 'Open 24 hours' : 'Open daily ' + settings.hours() }}</p>
+        <div class="mx-auto w-fit py-1">
+          <p class="font-medium text-slate-700">🕒 Opening hours</p>
+          <table class="mx-auto">
+            @for (row of settings.hours(); track row.days) {
+              <tr>
+                <td class="pr-3 text-left">{{ row.days }}</td>
+                <td class="text-left" [class.text-red-600]="row.hours === 'Closed'">{{ row.hours }}</td>
+              </tr>
+            }
+          </table>
+          @if (settings.upcomingHolidays().length) {
+            <p class="mt-1 text-red-600">Holiday (closed): {{ holidayList() }}</p>
+          }
+        </div>
         <p>Free delivery within {{ s.freeKm }} km</p>
       }
     </footer>
@@ -63,6 +77,11 @@ export class ShopLayoutComponent implements OnInit {
 
   ngOnInit(): void {
     if (!this.settings.settings()) this.settings.load().subscribe({ error: () => {} });
+  }
+
+  /** "Thu 25 Dec, Fri 26 Dec" */
+  protected holidayList(): string {
+    return this.settings.upcomingHolidays().map(formatDate).join(', ');
   }
 
   /** 94770798107 → 077 079 8107 (Sri Lankan local format for display). */

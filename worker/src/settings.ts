@@ -1,5 +1,5 @@
 import type { AppEnv } from './env';
-import { TIME_RE } from './hours';
+import { DAY_NAMES, type DayHours, addDays, allDayWeek, dayError, isValidDate, todayKey } from './hours';
 import { ApiError, json, readJson, throwIfErrors } from './http';
 import { isFiniteNumber, nowIso, parseEmails, toInternational } from './util';
 
@@ -12,12 +12,13 @@ export interface Settings {
   shopLng: number;
   freeKm: number;
   chargePerKm: number;
-  /** "HH:MM" or "" (both empty = open 24 hours) */
-  openTime: string;
-  closeTime: string;
+  /** 7 days, index 0 = Sunday … 6 = Saturday */
+  weeklyHours: DayHours[];
+  /** Closed dates, "YYYY-MM-DD" */
+  holidays: string[];
   /** false = the admin switched online orders off */
   acceptingOrders: boolean;
-  /** Time zone of openTime/closeTime (from wrangler.jsonc, read-only) */
+  /** Time zone of the opening hours (from wrangler.jsonc, read-only) */
   timezone: string;
 }
 
@@ -33,6 +34,31 @@ interface SettingsRow {
   open_time: string;
   close_time: string;
   accepting_orders: number;
+  weekly_hours: string;
+  holidays: string;
+}
+
+/** Reads the saved timetable. Until it is first saved, the old single open/close time applies to every day. */
+function parseWeek(r: SettingsRow): DayHours[] {
+  try {
+    const week = JSON.parse(r.weekly_hours || 'null');
+    if (Array.isArray(week) && week.length === 7) {
+      return week.map((d) => ({ closed: d?.closed === true, open: String(d?.open ?? ''), close: String(d?.close ?? '') }));
+    }
+  } catch {
+    /* fall through */
+  }
+  const old: DayHours = { closed: false, open: r.open_time ?? '', close: r.close_time ?? '' };
+  return dayError(old) ? allDayWeek() : Array.from({ length: 7 }, () => ({ ...old }));
+}
+
+function parseHolidays(raw: string): string[] {
+  try {
+    const list = JSON.parse(raw || '[]');
+    return Array.isArray(list) ? list.filter((d): d is string => typeof d === 'string' && isValidDate(d)) : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function loadSettings(env: AppEnv): Promise<Settings> {
@@ -47,8 +73,8 @@ export async function loadSettings(env: AppEnv): Promise<Settings> {
     shopLng: r.shop_lng,
     freeKm: r.free_km,
     chargePerKm: r.charge_per_km,
-    openTime: r.open_time ?? '',
-    closeTime: r.close_time ?? '',
+    weeklyHours: parseWeek(r),
+    holidays: parseHolidays(r.holidays),
     acceptingOrders: r.accepting_orders !== 0,
     timezone: env.TIMEZONE,
   };
@@ -129,15 +155,46 @@ export async function updateSettings(request: Request, env: AppEnv): Promise<Res
     else s.chargePerKm = rate;
   }
 
-  for (const key of ['openTime', 'closeTime'] as const) {
-    const t = text(key);
-    if (t === undefined) continue;
-    if (t.trim() !== '' && !TIME_RE.test(t.trim())) errors[key] = 'Use a time like 07:00 or 18:30';
-    else s[key] = t.trim();
+  // Opening hours for each day of the week (index 0 = Sunday)
+  const week = req.weeklyHours;
+  if (week !== undefined && week !== null) {
+    if (!Array.isArray(week) || week.length !== 7) {
+      errors.weeklyHours = 'Send 7 days (Sunday first)';
+    } else {
+      const days: DayHours[] = [];
+      const problems: string[] = [];
+      week.forEach((d: unknown, i: number) => {
+        const v = (d ?? {}) as Record<string, unknown>;
+        const open = v.open ?? '';
+        const close = v.close ?? '';
+        if (typeof v.closed !== 'boolean' || typeof open !== 'string' || typeof close !== 'string') {
+          problems.push(`${DAY_NAMES[i]}: invalid value`);
+          return;
+        }
+        const day: DayHours = { closed: v.closed, open: open.trim(), close: close.trim() };
+        const err = dayError(day);
+        if (err) problems.push(`${DAY_NAMES[i]}: ${err}`);
+        days.push(day);
+      });
+      if (problems.length) errors.weeklyHours = problems.join('; ');
+      else s.weeklyHours = days;
+    }
   }
-  if (!errors.openTime && !errors.closeTime && !s.openTime !== !s.closeTime) {
-    errors.openTime = 'Set both opening and closing time, or leave both empty (open 24 hours)';
+
+  // Holiday dates (closed all day)
+  const holidays = req.holidays;
+  if (holidays !== undefined && holidays !== null) {
+    if (!Array.isArray(holidays) || holidays.some((d) => typeof d !== 'string' || !isValidDate(d))) {
+      errors.holidays = 'Use dates like 2026-12-25';
+    } else {
+      // Keep from yesterday on (older dates are no longer needed), no duplicates, sorted.
+      const from = addDays(todayKey(env.TIMEZONE), -1);
+      const list = [...new Set(holidays as string[])].filter((d) => d >= from).sort();
+      if (list.length > 100) errors.holidays = 'At most 100 holiday dates';
+      else s.holidays = list;
+    }
   }
+
   const accepting = req.acceptingOrders;
   if (accepting !== undefined && accepting !== null) {
     if (typeof accepting !== 'boolean') errors.acceptingOrders = 'Invalid value';
@@ -148,7 +205,7 @@ export async function updateSettings(request: Request, env: AppEnv): Promise<Res
 
   await env.DB.prepare(
     `UPDATE settings SET shop_name = ?1, whatsapp_number = ?2, notify_email = ?3, shop_address = ?4,
-       shop_lat = ?5, shop_lng = ?6, free_km = ?7, charge_per_km = ?8, open_time = ?9, close_time = ?10,
+       shop_lat = ?5, shop_lng = ?6, free_km = ?7, charge_per_km = ?8, weekly_hours = ?9, holidays = ?10,
        accepting_orders = ?11, updated_at = ?12 WHERE id = 1`,
   )
     .bind(
@@ -160,8 +217,8 @@ export async function updateSettings(request: Request, env: AppEnv): Promise<Res
       s.shopLng,
       s.freeKm,
       s.chargePerKm,
-      s.openTime,
-      s.closeTime,
+      JSON.stringify(s.weeklyHours),
+      JSON.stringify(s.holidays),
       s.acceptingOrders ? 1 : 0,
       nowIso(),
     )

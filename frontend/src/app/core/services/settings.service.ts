@@ -3,7 +3,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { NotificationStatus, ShopSettings, TestNotificationResult } from '../models/models';
-import { ShopStatus, hoursLabel, shopStatus } from '../utils/shop-hours';
+import { ShopStatus, shopStatus, upcomingHolidays, weeklySummary } from '../utils/shop-hours';
 
 @Injectable({ providedIn: 'root' })
 export class SettingsService {
@@ -25,10 +25,16 @@ export class SettingsService {
   /** True unless the shop is known to be closed. */
   readonly isOpen = computed(() => this.status()?.open ?? true);
 
-  /** "7:00 AM – 8:00 PM" or "Open 24 hours" */
+  /** Weekly timetable for display, e.g. [{ days: 'Mon – Sat', hours: '7:00 AM – 8:00 PM' }, { days: 'Sun', hours: 'Closed' }] */
   readonly hours = computed(() => {
     const s = this.settings();
-    return s ? hoursLabel(s) : '';
+    return s ? weeklySummary(s) : [];
+  });
+
+  /** Holiday dates in the next 30 days ("YYYY-MM-DD"). */
+  readonly upcomingHolidays = computed(() => {
+    const s = this.settings();
+    return s ? upcomingHolidays(s, this.now(), 30) : [];
   });
 
   constructor() {

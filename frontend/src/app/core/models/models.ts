@@ -1,3 +1,5 @@
+import type { DayHours } from '../utils/shop-hours';
+
 export interface Item {
   id: number;
   name: string;
@@ -26,9 +28,10 @@ export interface ShopSettings {
   shopLng: number;
   freeKm: number;
   chargePerKm: number;
-  /** "HH:MM" or "" — both empty = open 24 hours */
-  openTime: string;
-  closeTime: string;
+  /** Opening hours per day: index 0 = Sunday … 6 = Saturday */
+  weeklyHours: DayHours[];
+  /** Closed dates, "YYYY-MM-DD" */
+  holidays: string[];
   /** false = online orders switched off by the admin */
   acceptingOrders: boolean;
   /** Time zone of the opening hours (read-only, set on the server) */
